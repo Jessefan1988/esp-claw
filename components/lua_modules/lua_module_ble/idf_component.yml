@@ -1,0 +1,3 @@
+## IDF Component Manager Manifest File
+## NimBLE is supplied by ESP-IDF `bt` when CONFIG_BT_ENABLED and CONFIG_BT_NIMBLE_ENABLED are set in sdkconfig.
+dependencies: {}

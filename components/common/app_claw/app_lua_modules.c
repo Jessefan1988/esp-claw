@@ -46,6 +46,9 @@
 #if CONFIG_APP_CLAW_LUA_MODULE_BUTTON
 #include "lua_module_button.h"
 #endif
+#if CONFIG_APP_CLAW_LUA_MODULE_BLE
+#include "lua_module_ble.h"
+#endif
 #if CONFIG_APP_CLAW_LUA_MODULE_CAMERA && defined(CONFIG_ESP_BOARD_DEV_CAMERA_SUPPORT)
 #include "lua_module_camera.h"
 #endif
@@ -310,6 +313,14 @@ static esp_err_t app_lua_register_button(const char *fatfs_base_path)
 }
 #endif
 
+#if CONFIG_APP_CLAW_LUA_MODULE_BLE
+static esp_err_t app_lua_register_ble(const char *fatfs_base_path)
+{
+    (void)fatfs_base_path;
+    return lua_module_ble_register();
+}
+#endif
+
 #if CONFIG_APP_CLAW_LUA_MODULE_CAMERA && defined(CONFIG_ESP_BOARD_DEV_CAMERA_SUPPORT)
 static esp_err_t app_lua_register_camera(const char *fatfs_base_path)
 {
@@ -494,6 +505,9 @@ static const app_lua_module_entry_t s_lua_module_entries[] = {
 #if CONFIG_APP_CLAW_LUA_MODULE_BUTTON
     { "button", "Button", app_lua_register_button },
 #endif
+#if CONFIG_APP_CLAW_LUA_MODULE_BLE
+    { "ble", "BLE", app_lua_register_ble },
+#endif
 #if CONFIG_APP_CLAW_LUA_MODULE_CAMERA && defined(CONFIG_ESP_BOARD_DEV_CAMERA_SUPPORT)
     { "camera", "Camera", app_lua_register_camera },
 #endif
@@ -585,6 +599,9 @@ static const app_lua_module_info_t s_lua_module_infos[] = {
 #endif
 #if CONFIG_APP_CLAW_LUA_MODULE_BUTTON
     { "button", "Button" },
+#endif
+#if CONFIG_APP_CLAW_LUA_MODULE_BLE
+    { "ble", "BLE" },
 #endif
 #if CONFIG_APP_CLAW_LUA_MODULE_CAMERA && defined(CONFIG_ESP_BOARD_DEV_CAMERA_SUPPORT)
     { "camera", "Camera" },
