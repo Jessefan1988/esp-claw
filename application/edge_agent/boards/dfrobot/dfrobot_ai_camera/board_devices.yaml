@@ -87,3 +87,18 @@ devices:
       default_level: 0
     peripherals:
       - name: gpio_ir_led
+
+  # microSD over SPI (DFR1154 Arduino examples: CS=10, MOSI=11, MISO=13, SCK=12)
+  - name: fs_sdcard
+    type: fs_fat
+    sub_type: spi
+    version: default
+    config:
+      vfs_config:
+        format_if_mount_failed: false
+        max_files: 5
+      sub_config:
+        cs_gpio_num: 10
+        frequency: SDMMC_FREQ_DEFAULT
+    peripherals:
+      - name: spi_sdcard

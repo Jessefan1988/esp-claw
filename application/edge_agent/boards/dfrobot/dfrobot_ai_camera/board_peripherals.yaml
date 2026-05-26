@@ -82,13 +82,13 @@ peripherals:
       default_level: 0
 
   # microSD over SPI (DFR1154 Arduino examples: CS=10, MOSI=11, MISO=13, SCK=12)
-  #- name: spi_sdcard
-  #  type: spi
-  #  role: master
-  #  config:
-  #    spi_bus_config:
-  #      spi_port: SPI2_HOST
-  #      mosi_io_num: 11
-  #      miso_io_num: 13
-  #      sclk_io_num: 12
-  #      max_transfer_sz: 4096
+  - name: spi_sdcard
+    type: spi
+    role: master
+    config:
+      spi_bus_config:
+        spi_port: SPI2_HOST
+        mosi_io_num: 11
+        miso_io_num: 13
+        sclk_io_num: 12
+        max_transfer_sz: 4096
