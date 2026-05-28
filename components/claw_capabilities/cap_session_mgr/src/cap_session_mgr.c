@@ -74,7 +74,7 @@ typedef struct {
     char alias[CAP_SESSION_MGR_ALIAS_MAX + 1];
 } cap_session_mgr_parsed_command_t;
 
-static cap_session_mgr_state_t s_session_mgr = {0};
+static EXT_RAM_BSS_ATTR cap_session_mgr_state_t s_session_mgr = {0};
 
 static bool cap_session_mgr_is_ascii_space(char ch);
 

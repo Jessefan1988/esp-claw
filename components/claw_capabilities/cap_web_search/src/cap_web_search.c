@@ -39,7 +39,7 @@ typedef struct {
     cap_web_search_provider_t provider;
 } cap_web_search_state_t;
 
-static cap_web_search_state_t s_search = {0};
+static EXT_RAM_BSS_ATTR cap_web_search_state_t s_search = {0};
 
 static void cap_web_search_refresh_provider(void)
 {

@@ -17,7 +17,7 @@
 
 static const char *TAG = "cap_scheduler";
 
-cap_scheduler_runtime_t s_cap_scheduler = {0};
+EXT_RAM_BSS_ATTR cap_scheduler_runtime_t s_cap_scheduler = {0};
 
 static esp_err_t cap_scheduler_execute_list(const char *input_json,
                                             const claw_cap_call_context_t *ctx,

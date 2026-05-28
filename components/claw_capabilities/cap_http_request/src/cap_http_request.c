@@ -45,7 +45,7 @@ typedef struct {
     char allowlist[CAP_HTTP_REQUEST_ALLOWLIST_MAX];
 } cap_http_request_state_t;
 
-static cap_http_request_state_t s_http_request = {0};
+static EXT_RAM_BSS_ATTR cap_http_request_state_t s_http_request = {0};
 
 static bool cap_http_request_extract_url_host(const char *url, char *host, size_t host_size);
 static bool cap_http_request_host_allowed(const char *host);

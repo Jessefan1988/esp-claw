@@ -33,8 +33,8 @@ typedef struct cap_lua_package_path_dir_node {
     struct cap_lua_package_path_dir_node *next;
 } cap_lua_package_path_dir_node_t;
 
-char g_cap_lua_base_dir[128];
-static cap_lua_module_t s_modules[CAP_LUA_MAX_MODULES];
+EXT_RAM_BSS_ATTR char g_cap_lua_base_dir[128];
+static EXT_RAM_BSS_ATTR cap_lua_module_t s_modules[CAP_LUA_MAX_MODULES];
 static cap_lua_package_path_dir_node_t *s_package_path_dirs;
 static size_t s_package_path_dir_count;
 static size_t s_module_count;
