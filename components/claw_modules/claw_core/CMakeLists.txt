@@ -17,7 +17,6 @@ idf_component_register(
         http_reuse
         esp-tls
         freertos
-        json
         mbedtls
     PRIV_REQUIRES
         claw_event_router

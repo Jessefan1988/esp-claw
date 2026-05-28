@@ -20,6 +20,8 @@ Pure Lua modules may provide only managed resources such as `lib/`, `test/`, and
 | `adc` | `lua_driver_adc` | ADC sampling |
 | `gpio` | `lua_driver_gpio` | GPIO reads/writes and direction |
 | `i2c` | `lua_driver_i2c` | I2C bus scan and per-device read/write |
+| `ssd1306` | `lua_driver_i2c` | Pure-Lua SSD1306 I2C OLED driver |
+| `lib_si12t_touch` | `lua_driver_i2c` | Pure-Lua Si12T I2C capacitive touch driver |
 | `mcpwm` | `lua_driver_mcpwm` | Generic PWM output (frequency/duty control) |
 | `touch` | `lua_driver_touch` | Capacitive touch key reads |
 | `uart` | `lua_driver_uart` | UART serial I/O (polling read/write) |
@@ -46,7 +48,6 @@ Pure Lua modules may provide only managed resources such as `lib/`, `test/`, and
 | `lcd_touch` | `lua_module_lcd_touch` | Touch coordinates |
 | `led_strip` | `lua_module_led_strip` | Addressable strips such as WS2812 |
 | `magnetometer` | `lua_module_magnetometer` | Magnetometer / compass reads |
-| `ssd1306` | `lua_module_ssd1306` | Pure-Lua SSD1306 I2C OLED driver |
 | `storage` | `lua_module_storage` | Filesystem operations |
 | `system` | `lua_module_system` | Time, uptime, IP, memory, heap, task stack, and Wi-Fi status |
 | `arg_schema` | `lua_module_system` | Pure-Lua argument normalization helper |

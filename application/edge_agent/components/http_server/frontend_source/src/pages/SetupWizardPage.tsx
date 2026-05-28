@@ -295,10 +295,7 @@ function isWechatConfiguredLikeIm(form: ImForm): boolean {
   const normalizedAccountId = accountId.toLowerCase();
 
   const onlyDefaultPrefill =
-    !token &&
-    !!baseUrl &&
-    !!cdnBaseUrl &&
-    (!accountId || normalizedAccountId === 'default');
+    !token && !!baseUrl && !!cdnBaseUrl && (!accountId || normalizedAccountId === 'default');
 
   if (onlyDefaultPrefill) return false;
   return !!token || !!accountId;
@@ -409,9 +406,7 @@ const WechatWizardPanel: Component<{
 
   const statusText = () => {
     const s = status()?.status;
-    return s
-      ? ((t('wechatLoginStatusPrefix') as string) + s)
-      : (t('wechatLoginStatus') as string);
+    return s ? (t('wechatLoginStatusPrefix') as string) + s : (t('wechatLoginStatus') as string);
   };
 
   return (
@@ -488,6 +483,20 @@ export const SetupWizardPage: Component<SetupWizardPageProps> = (props) => {
   onMount(async () => {
     setLoading(true);
     setError(null);
+
+    {
+      const offsetMin = new Date().getTimezoneOffset();
+      const absH = Math.floor(Math.abs(offsetMin) / 60);
+      const absM = Math.abs(offsetMin) % 60;
+      const sign = offsetMin >= 0 ? '' : '-';
+      const tz = `UTC${sign}${absH}${absM ? ':' + String(absM).padStart(2, '0') : ''}`;
+      saveConfigPatch({ time_timezone: tz })
+        .then(() => patchConfigLocal({ time_timezone: tz }))
+        .catch(() => {
+          console.error('Failed to save time_timezone to config');
+        });
+    }
+
     try {
       await ensureConfigGroups(['llm', 'im', 'search']);
       batch(() => {
@@ -577,9 +586,7 @@ export const SetupWizardPage: Component<SetupWizardPageProps> = (props) => {
       requiredFields.push([llmForm.llm_max_tokens_field, t('llmMaxTokensField') as string]);
     }
 
-    const missing = requiredFields
-      .filter(([value]) => !value.trim())
-      .map(([, label]) => label);
+    const missing = requiredFields.filter(([value]) => !value.trim()).map(([, label]) => label);
 
     if (missing.length > 0) {
       const message = (t('llmValidationRequiredFields') as string).replace(
@@ -684,14 +691,14 @@ export const SetupWizardPage: Component<SetupWizardPageProps> = (props) => {
           ])
         : null) ??
       (selected.has('telegram')
-        ? validatePlatform(t('imTelegramTitle') as string, [
+        ? (validatePlatform(t('imTelegramTitle') as string, [
             [imForm.tg_bot_token, t('tgBotToken') as string],
           ]) ??
           (!isTelegramToken(imForm.tg_bot_token.trim())
             ? (t('imValidationInvalidField') as string)
                 .replace('{platform}', t('imTelegramTitle') as string)
                 .replace('{field}', t('tgBotToken') as string)
-            : null)
+            : null))
         : null);
 
     if (message) {
@@ -1047,7 +1054,11 @@ export const SetupWizardPage: Component<SetupWizardPageProps> = (props) => {
                           <div class="flex flex-wrap gap-2">
                             <For each={remainingPlatforms()}>
                               {(id) => (
-                                <Button size="sm" variant="secondary" onClick={() => addPlatform(id)}>
+                                <Button
+                                  size="sm"
+                                  variant="secondary"
+                                  onClick={() => addPlatform(id)}
+                                >
                                   + {platformLabel(id)}
                                 </Button>
                               )}
@@ -1087,7 +1098,9 @@ export const SetupWizardPage: Component<SetupWizardPageProps> = (props) => {
                         </>
                       }
                       value={searchForm.search_tavily_key}
-                      onInput={(event) => setSearchForm('search_tavily_key', event.currentTarget.value)}
+                      onInput={(event) =>
+                        setSearchForm('search_tavily_key', event.currentTarget.value)
+                      }
                     />
                     <TextInput
                       label={t('searchHttpAllowlist')}
@@ -1119,7 +1132,9 @@ export const SetupWizardPage: Component<SetupWizardPageProps> = (props) => {
             </div>
             <div class="flex flex-wrap items-center justify-end gap-2">
               <Show when={step() < 3}>
-                <span class="text-[0.82rem] text-[var(--color-text-muted)]">{t('setupSkipHint')}</span>
+                <span class="text-[0.82rem] text-[var(--color-text-muted)]">
+                  {t('setupSkipHint')}
+                </span>
               </Show>
               <Show when={step() < 3}>
                 <Button variant="secondary" onClick={next} disabled={saving()}>

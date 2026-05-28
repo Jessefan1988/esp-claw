@@ -25,8 +25,20 @@ typedef enum {
     CLAW_CORE_COMPLETION_DONE = 0,
 } claw_core_completion_type_t;
 
+typedef enum {
+    CLAW_CORE_AGENT_LOOP_PHASE_IDLE = 0,
+    CLAW_CORE_AGENT_LOOP_PHASE_BEFORE_BUILD_ITERATION_CONTEXT,
+    CLAW_CORE_AGENT_LOOP_PHASE_BUILDING_ITERATION_CONTEXT,
+    CLAW_CORE_AGENT_LOOP_PHASE_BEFORE_LLM_HTTP,
+    CLAW_CORE_AGENT_LOOP_PHASE_IN_LLM_HTTP,
+    CLAW_CORE_AGENT_LOOP_PHASE_AFTER_LLM_BEFORE_TOOL,
+    CLAW_CORE_AGENT_LOOP_PHASE_RUNNING_TOOL,
+    CLAW_CORE_AGENT_LOOP_PHASE_FINALIZING,
+} claw_core_agent_loop_phase_t;
+
 #define CLAW_CORE_REQUEST_FLAG_PUBLISH_OUT_MESSAGE (1U << 0)
 #define CLAW_CORE_REQUEST_FLAG_SKIP_RESPONSE_QUEUE (1U << 1)
+#define CLAW_CORE_REQUEST_FLAG_USER_INTERRUPT      (1U << 2)
 
 #define CLAW_CORE_CONTEXT_PROVIDER_FLAG_REQUEST_START_ONLY (1U << 0)
 
@@ -178,6 +190,7 @@ esp_err_t claw_core_call_cap(const char *cap_name,
 esp_err_t claw_core_publish_stage_text(const claw_core_request_t *request, const char *text);
 esp_err_t claw_core_submit(const claw_core_request_t *request, uint32_t timeout_ms);
 esp_err_t claw_core_cancel_request(uint32_t request_id);
+claw_core_agent_loop_phase_t claw_core_get_agent_loop_phase(void);
 esp_err_t claw_core_receive(claw_core_response_t *response, uint32_t timeout_ms);
 esp_err_t claw_core_receive_for(uint32_t request_id,
                                 claw_core_response_t *response,

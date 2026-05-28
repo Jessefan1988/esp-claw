@@ -42,10 +42,7 @@ export const SearchPage: Component<{ onRestartRequest: () => void }> = (props) =
 
   return (
     <TabShell>
-      <PageHeader
-        title={t('navSearch') as string}
-        description={t('searchNote') as string}
-      />
+      <PageHeader title={t('navSearch') as string} description={t('searchNote') as string} />
       <Show when={tab.error()}>
         <div class="px-5 pt-4">
           <Banner kind="error" message={tab.error() ?? undefined} />

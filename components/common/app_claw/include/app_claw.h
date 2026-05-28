@@ -36,6 +36,7 @@ typedef struct {
     char llm_image_remote_url_only[8];
     char qq_app_id[APP_CLAW_SHORT_STR_LEN];
     char qq_app_secret[APP_CLAW_STR_LEN];
+    char qq_msg_type[8];
     char feishu_app_id[APP_CLAW_MODEL_LEN];
     char feishu_app_secret[APP_CLAW_STR_LEN];
     char tg_bot_token[APP_CLAW_STR_LEN];

@@ -57,6 +57,7 @@ static const config_field_def_t CONFIG_FIELDS[] = {
 
     CONFIG_FIELD("im",           qq_app_id),
     CONFIG_FIELD("im",           qq_app_secret),
+    CONFIG_FIELD("im",           qq_msg_type),
     CONFIG_FIELD("im",           feishu_app_id),
     CONFIG_FIELD("im",           feishu_app_secret),
     CONFIG_FIELD("im",           tg_bot_token),

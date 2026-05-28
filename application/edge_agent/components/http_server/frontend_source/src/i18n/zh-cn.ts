@@ -147,6 +147,9 @@ export const zhCn: Dict = {
   imValidationIncompletePlatform: '保存前请将 {platform} 配置完整，缺少：{fields}。',
   imValidationInvalidField: '{platform} 的 {field} 格式无效。',
   imWechatCredsFilled: '凭据已从二维码登录填入，请在下方高级设置中确认后点击保存。',
+  qqMsgType: '消息类型',
+  qqMsgTypePlain: '纯文本',
+  qqMsgTypeMarkdown: 'Markdown',
   qqAppId: 'QQ App ID',
   qqAppSecret: 'QQ App Secret',
   feishuAppId: '飞书 App ID',
@@ -195,8 +198,7 @@ export const zhCn: Dict = {
   capabilityNoResult: '没有匹配当前筛选条件的 capability。',
 
   sectionLuaModules: 'Lua 模块',
-  luaModulesDescription:
-    '选择 cap_lua 启动时要注册哪些已编译的 Lua 模块。修改后需重启生效。',
+  luaModulesDescription: '选择 cap_lua 启动时要注册哪些已编译的 Lua 模块。修改后需重启生效。',
   luaModulesSearchPlaceholder: '搜索模块…',
   luaModulesSummary: '已启用 {enabled} / 共 {total}',
   luaModulesSelectAll: '全选',
@@ -256,6 +258,13 @@ export const zhCn: Dict = {
   fileDevModeConfirm:
     '进入开发者模式后，你可以上传、修改或删除文件。不正确的增删改可能导致系统无法正常运行、无限重启等问题。请注意合理修改。',
   fileDeleteConfirm: '确定删除 {path}？',
+  fileDeleteDirNotEmpty: '文件夹 {path} 不为空，是否递归删除所有内容？此操作不可撤销。',
+  fileDownloadFolder: '下载文件夹',
+  fileDownloadingFolder: '正在逐个下载并打包…',
+  fileDownloadFolderCancel: '放弃下载',
+  fileDownloadFolderCancelled: '已放弃文件夹下载',
+  fileDownloadFolderDone: '文件夹下载完成',
+  fileDownloadFolderFailed: '文件夹下载失败',
   fileUploadComplete: '上传完成',
   fileFolderCreated: '文件夹已创建',
   fileDeleteComplete: '删除完成',

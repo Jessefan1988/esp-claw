@@ -58,6 +58,7 @@ The current app integrates the following capabilities:
 - `cap_skill_mgr`
 - `cap_time`
 - `cap_llm_inspect`
+- `cap_http_request`
 - `cap_web_search`
 
 ## Quick Start

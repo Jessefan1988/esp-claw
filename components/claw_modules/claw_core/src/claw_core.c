@@ -36,6 +36,8 @@ static const char *TAG = "claw_core";
 #define CLAW_CORE_DEFAULT_REQUEST_Q       4
 #define CLAW_CORE_DEFAULT_RESPONSE_Q      4
 #define CLAW_CORE_DEFAULT_TOOL_ITERATIONS 10
+#define CLAW_CORE_INSERT_QUEUE_LEN        4
+#define CLAW_CORE_INFLIGHT_SESSION_ID_SIZE 128
 #ifndef CLAW_CORE_LOG_SNIPPET_LEN
 #define CLAW_CORE_LOG_SNIPPET_LEN         96
 #endif
@@ -69,6 +71,12 @@ typedef struct {
     char *content;
 } claw_core_cached_context_t;
 
+typedef enum {
+    CLAW_CORE_CONTROL_ABORT_REASON_NONE = 0,
+    CLAW_CORE_CONTROL_ABORT_REASON_CANCEL,
+    CLAW_CORE_CONTROL_ABORT_REASON_USER_INTERRUPT,
+} claw_core_control_abort_reason_t;
+
 typedef struct {
     bool initialized;
     bool started;
@@ -90,6 +98,7 @@ typedef struct {
     UBaseType_t task_priority;
     BaseType_t task_core;
     uint32_t max_tool_iterations;
+    /* Waiting queue: entries start new agent loops when the core task is idle. */
     QueueHandle_t request_queue;
     QueueHandle_t response_queue;
     TaskHandle_t task_handle;
@@ -98,7 +107,13 @@ typedef struct {
     claw_core_pending_response_t *pending_tail;
     SemaphoreHandle_t inflight_lock;
     uint32_t inflight_request_id;
+    char inflight_session_id[CLAW_CORE_INFLIGHT_SESSION_ID_SIZE];
+    claw_core_agent_loop_phase_t agent_loop_phase;
     volatile bool inflight_abort;
+    claw_core_control_abort_reason_t inflight_abort_reason;
+    claw_core_request_item_t insert_queue[CLAW_CORE_INSERT_QUEUE_LEN];
+    size_t insert_queue_head;
+    size_t insert_queue_count;
 #define CLAW_CORE_MAX_COMPLETION_OBSERVERS 4
     struct {
         claw_core_completion_observer_fn fn;
@@ -108,6 +123,8 @@ typedef struct {
 } claw_core_state_t;
 
 static claw_core_state_t *s_core = NULL;
+
+static void clear_insert_queue_locked(void);
 
 static char *dup_string(const char *src)
 {
@@ -143,6 +160,12 @@ static char *dup_printf(const char *fmt, ...)
     vsnprintf(buf, (size_t)needed + 1, fmt, args);
     va_end(args);
     return buf;
+}
+
+static bool claw_core_agent_loop_phase_is_insertable(claw_core_agent_loop_phase_t phase)
+{
+    return phase != CLAW_CORE_AGENT_LOOP_PHASE_IDLE &&
+           phase != CLAW_CORE_AGENT_LOOP_PHASE_FINALIZING;
 }
 
 static const char *log_snippet(const char *text)
@@ -337,6 +360,10 @@ static void claw_core_reset_runtime(void)
         vSemaphoreDelete(s_core->response_lock);
     }
     if (s_core->inflight_lock) {
+        if (xSemaphoreTake(s_core->inflight_lock, portMAX_DELAY) == pdTRUE) {
+            clear_insert_queue_locked();
+            xSemaphoreGive(s_core->inflight_lock);
+        }
         vSemaphoreDelete(s_core->inflight_lock);
     }
     memset(s_core, 0, sizeof(*s_core));
@@ -359,6 +386,54 @@ static void free_request_item(claw_core_request_item_t *item)
     free(item->owned_target_channel);
     free(item->owned_target_chat_id);
     memset(item, 0, sizeof(*item));
+}
+
+static esp_err_t clone_request_item(const claw_core_request_t *request,
+                                    claw_core_request_item_t *out_item)
+{
+    claw_core_request_item_t item = {0};
+
+    if (!request || !out_item || !request->user_text || request->user_text[0] == '\0') {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    item.view.request_id = request->request_id;
+    item.view.flags = request->flags;
+    item.owned_session_id = dup_string(request->session_id);
+    item.owned_user_text = dup_string(request->user_text);
+    item.owned_source_channel = dup_string(request->source_channel);
+    item.owned_source_chat_id = dup_string(request->source_chat_id);
+    item.owned_source_sender_id = dup_string(request->source_sender_id);
+    item.owned_source_message_id = dup_string(request->source_message_id);
+    item.owned_source_cap = dup_string(request->source_cap);
+    item.owned_target_channel = dup_string(request->target_channel);
+    item.owned_target_chat_id = dup_string(request->target_chat_id);
+
+    item.view.session_id = item.owned_session_id;
+    item.view.user_text = item.owned_user_text;
+    item.view.source_channel = item.owned_source_channel;
+    item.view.source_chat_id = item.owned_source_chat_id;
+    item.view.source_sender_id = item.owned_source_sender_id;
+    item.view.source_message_id = item.owned_source_message_id;
+    item.view.source_cap = item.owned_source_cap;
+    item.view.target_channel = item.owned_target_channel;
+    item.view.target_chat_id = item.owned_target_chat_id;
+
+    if ((request->session_id && !item.owned_session_id) ||
+            (request->source_channel && !item.owned_source_channel) ||
+            (request->source_chat_id && !item.owned_source_chat_id) ||
+            (request->source_sender_id && !item.owned_source_sender_id) ||
+            (request->source_message_id && !item.owned_source_message_id) ||
+            (request->source_cap && !item.owned_source_cap) ||
+            (request->target_channel && !item.owned_target_channel) ||
+            (request->target_chat_id && !item.owned_target_chat_id) ||
+            !item.owned_user_text) {
+        free_request_item(&item);
+        return ESP_ERR_NO_MEM;
+    }
+
+    *out_item = item;
+    return ESP_OK;
 }
 
 static void free_response_item(claw_core_response_item_t *item)
@@ -388,6 +463,179 @@ static void free_cached_contexts(claw_core_cached_context_t *contexts, size_t co
         contexts[i].valid = false;
     }
     free(contexts);
+}
+
+static void clear_insert_queue_locked(void)
+{
+    size_t i;
+
+    if (!s_core) {
+        return;
+    }
+
+    for (i = 0; i < s_core->insert_queue_count; i++) {
+        size_t index = (s_core->insert_queue_head + i) % CLAW_CORE_INSERT_QUEUE_LEN;
+
+        free_request_item(&s_core->insert_queue[index]);
+    }
+    s_core->insert_queue_head = 0;
+    s_core->insert_queue_count = 0;
+}
+
+static void claw_core_set_agent_loop_phase(claw_core_agent_loop_phase_t phase)
+{
+    if (!s_core || !s_core->inflight_lock) {
+        return;
+    }
+
+    if (xSemaphoreTake(s_core->inflight_lock, portMAX_DELAY) == pdTRUE) {
+        s_core->agent_loop_phase = phase;
+        xSemaphoreGive(s_core->inflight_lock);
+    }
+}
+
+static bool dequeue_inserted_user_inputs(const char *session_id,
+                                         char **texts,
+                                         size_t max_count,
+                                         size_t *out_count)
+{
+    bool found = false;
+
+    if (!session_id || session_id[0] == '\0' || !texts || max_count == 0 || !out_count) {
+        return false;
+    }
+    *out_count = 0;
+    if (!s_core || !s_core->inflight_lock) {
+        return false;
+    }
+
+    if (xSemaphoreTake(s_core->inflight_lock, portMAX_DELAY) != pdTRUE) {
+        return false;
+    }
+    while (s_core->insert_queue_count > 0 && *out_count < max_count) {
+        claw_core_request_item_t *item = &s_core->insert_queue[s_core->insert_queue_head];
+
+        if (!item->view.session_id || strcmp(item->view.session_id, session_id) != 0) {
+            break;
+        }
+        texts[*out_count] = item->owned_user_text;
+        item->owned_user_text = NULL;
+        item->view.user_text = NULL;
+        free_request_item(item);
+        s_core->insert_queue_head = (s_core->insert_queue_head + 1) % CLAW_CORE_INSERT_QUEUE_LEN;
+        s_core->insert_queue_count--;
+        (*out_count)++;
+        found = true;
+    }
+    if (s_core->insert_queue_count == 0) {
+        s_core->insert_queue_head = 0;
+    }
+    xSemaphoreGive(s_core->inflight_lock);
+    return found;
+}
+
+static bool take_user_interrupt_http_abort(uint32_t request_id)
+{
+    bool taken = false;
+
+    if (!s_core || !s_core->inflight_lock) {
+        return false;
+    }
+    if (xSemaphoreTake(s_core->inflight_lock, portMAX_DELAY) != pdTRUE) {
+        return false;
+    }
+    if (s_core->inflight_request_id == request_id &&
+            s_core->inflight_abort &&
+            s_core->inflight_abort_reason == CLAW_CORE_CONTROL_ABORT_REASON_USER_INTERRUPT) {
+        s_core->inflight_abort = false;
+        s_core->inflight_abort_reason = CLAW_CORE_CONTROL_ABORT_REASON_NONE;
+        taken = true;
+    }
+    xSemaphoreGive(s_core->inflight_lock);
+    return taken;
+}
+
+static esp_err_t queue_insert_request_locked(claw_core_request_item_t *item)
+{
+    size_t tail;
+
+    if (!item || !item->view.session_id || item->view.session_id[0] == '\0' ||
+            s_core->inflight_request_id == 0 ||
+            s_core->inflight_session_id[0] == '\0' ||
+            strcmp(s_core->inflight_session_id, item->view.session_id) != 0) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    if (!claw_core_agent_loop_phase_is_insertable(s_core->agent_loop_phase)) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (s_core->insert_queue_count >= CLAW_CORE_INSERT_QUEUE_LEN) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    tail = (s_core->insert_queue_head + s_core->insert_queue_count) % CLAW_CORE_INSERT_QUEUE_LEN;
+    s_core->insert_queue[tail] = *item;
+    memset(item, 0, sizeof(*item));
+    s_core->insert_queue_count++;
+
+    if (s_core->agent_loop_phase == CLAW_CORE_AGENT_LOOP_PHASE_IN_LLM_HTTP &&
+            s_core->inflight_abort_reason != CLAW_CORE_CONTROL_ABORT_REASON_CANCEL) {
+        s_core->inflight_abort = true;
+        s_core->inflight_abort_reason = CLAW_CORE_CONTROL_ABORT_REASON_USER_INTERRUPT;
+    }
+    return ESP_OK;
+}
+
+static esp_err_t try_queue_insert_request(claw_core_request_item_t *item)
+{
+    uint32_t inserted_request_id;
+    uint32_t inflight_request_id;
+    char session_id[CLAW_CORE_INFLIGHT_SESSION_ID_SIZE] = {0};
+    size_t depth;
+    esp_err_t err;
+
+    if (!s_core || !s_core->inflight_lock || !item) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    inserted_request_id = item->view.request_id;
+    if (item->view.session_id) {
+        strlcpy(session_id, item->view.session_id, sizeof(session_id));
+    }
+
+    if (xSemaphoreTake(s_core->inflight_lock, pdMS_TO_TICKS(200)) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+    inflight_request_id = s_core->inflight_request_id;
+    err = queue_insert_request_locked(item);
+    depth = s_core->insert_queue_count;
+    xSemaphoreGive(s_core->inflight_lock);
+
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG,
+                 "inserted user input request=%" PRIu32 " into inflight_request=%" PRIu32
+                 " session=%s depth=%u",
+                 inserted_request_id,
+                 inflight_request_id,
+                 session_id,
+                 (unsigned)depth);
+    }
+    return err;
+}
+
+static void clear_user_interrupt_abort(uint32_t request_id)
+{
+    if (!s_core || !s_core->inflight_lock) {
+        return;
+    }
+    if (xSemaphoreTake(s_core->inflight_lock, portMAX_DELAY) != pdTRUE) {
+        return;
+    }
+    if (s_core->inflight_request_id == request_id &&
+            s_core->inflight_abort_reason == CLAW_CORE_CONTROL_ABORT_REASON_USER_INTERRUPT) {
+        s_core->inflight_abort = false;
+        s_core->inflight_abort_reason = CLAW_CORE_CONTROL_ABORT_REASON_NONE;
+    }
+    xSemaphoreGive(s_core->inflight_lock);
 }
 
 static esp_err_t push_response(claw_core_response_item_t *item)
@@ -1128,12 +1376,53 @@ static void log_session_persist_failure(const claw_core_request_t *request,
              esp_err_to_name(err));
 }
 
+static bool request_has_session_persistence(const claw_core_request_t *request)
+{
+    return s_core && s_core->persist_session &&
+           request && request->session_id && request->session_id[0];
+}
+
+static esp_err_t persist_session_user_messages_if_configured(const claw_core_request_t *request,
+                                                             const char *const *texts,
+                                                             size_t text_count,
+                                                             bool *out_persisted)
+{
+    claw_session_record_t records[CLAW_CORE_INSERT_QUEUE_LEN];
+    size_t i;
+
+    if (out_persisted) {
+        *out_persisted = false;
+    }
+    if (!request || !texts || text_count == 0 || text_count > CLAW_CORE_INSERT_QUEUE_LEN) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (!request_has_session_persistence(request)) {
+        return ESP_OK;
+    }
+
+    for (i = 0; i < text_count; i++) {
+        if (!texts[i] || !texts[i][0]) {
+            return ESP_ERR_INVALID_ARG;
+        }
+        records[i] = (claw_session_record_t) {
+            .type = CLAW_SESSION_RECORD_USER,
+            .text = texts[i],
+        };
+    }
+
+    esp_err_t err = persist_session_batch_if_configured(request, records, text_count, false);
+
+    if (err == ESP_OK && out_persisted) {
+        *out_persisted = true;
+    }
+    return err;
+}
+
 static esp_err_t persist_session_tool_round_if_configured(const claw_core_request_t *request,
                                                           const char *assistant_tool_message_json,
-                                                          const char *tool_results_json,
-                                                          bool include_user)
+                                                          const char *tool_results_json)
 {
-    claw_session_record_t records[3];
+    claw_session_record_t records[2];
     size_t record_count = 0;
 
     if (!request) {
@@ -1142,13 +1431,6 @@ static esp_err_t persist_session_tool_round_if_configured(const claw_core_reques
     if (!assistant_tool_message_json || !assistant_tool_message_json[0] ||
             !tool_results_json || !tool_results_json[0]) {
         return ESP_ERR_INVALID_ARG;
-    }
-
-    if (include_user) {
-        records[record_count++] = (claw_session_record_t) {
-            .type = CLAW_SESSION_RECORD_USER,
-            .text = request->user_text,
-        };
     }
 
     records[record_count++] = (claw_session_record_t) {
@@ -1165,21 +1447,13 @@ static esp_err_t persist_session_tool_round_if_configured(const claw_core_reques
 
 static esp_err_t persist_session_final_if_configured(const claw_core_request_t *request,
                                                      const char *assistant_final_json,
-                                                     const char *assistant_text,
-                                                     bool user_already_flushed)
+                                                     const char *assistant_text)
 {
-    claw_session_record_t records[2];
+    claw_session_record_t records[1];
     size_t record_count = 0;
 
     if (!request) {
         return ESP_OK;
-    }
-
-    if (!user_already_flushed) {
-        records[record_count++] = (claw_session_record_t) {
-            .type = CLAW_SESSION_RECORD_USER,
-            .text = request->user_text,
-        };
     }
 
     records[record_count++] = (claw_session_record_t) {
@@ -1296,10 +1570,27 @@ cleanup:
     return err;
 }
 
+static bool cached_contexts_have_messages(const claw_core_cached_context_t *contexts, size_t count)
+{
+    size_t i;
+
+    if (!contexts) {
+        return false;
+    }
+
+    for (i = 0; i < count; i++) {
+        if (contexts[i].valid && contexts[i].kind == CLAW_CORE_CONTEXT_KIND_MESSAGES) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static esp_err_t build_iteration_context(const claw_core_request_item_t *request,
                                          const cJSON *runtime_messages,
                                          const claw_core_cached_context_t *request_start_contexts,
                                          size_t request_start_context_count,
+                                         bool inject_active_user,
                                          char **out_system_prompt,
                                          cJSON **out_messages,
                                          char **out_tools_json,
@@ -1407,9 +1698,11 @@ static esp_err_t build_iteration_context(const claw_core_request_item_t *request
         goto cleanup;
     }
 
-    err = append_user_message(messages, request->view.user_text);
-    if (err != ESP_OK) {
-        goto cleanup;
+    if (inject_active_user) {
+        err = append_user_message(messages, request->view.user_text);
+        if (err != ESP_OK) {
+            goto cleanup;
+        }
     }
 
     if (runtime_messages && cJSON_GetArraySize((cJSON *)runtime_messages) > 0) {
@@ -1443,6 +1736,78 @@ cleanup:
     return err;
 }
 
+static esp_err_t handle_pending_user_interrupts(const claw_core_request_item_t *request,
+                                                const char *timing_point,
+                                                cJSON **runtime_messages,
+                                                bool *out_drained)
+{
+    char *texts[CLAW_CORE_INSERT_QUEUE_LEN] = {0};
+    const char *persist_texts[CLAW_CORE_INSERT_QUEUE_LEN] = {0};
+    size_t text_count = 0;
+    size_t i;
+    bool persisted = false;
+    esp_err_t err;
+
+    if (out_drained) {
+        *out_drained = false;
+    }
+    if (!request || !runtime_messages || !out_drained) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (!dequeue_inserted_user_inputs(request->view.session_id,
+                                      texts,
+                                      CLAW_CORE_INSERT_QUEUE_LEN,
+                                      &text_count)) {
+        return ESP_OK;
+    }
+    clear_user_interrupt_abort(request->view.request_id);
+
+    for (i = 0; i < text_count; i++) {
+        persist_texts[i] = texts[i];
+    }
+
+    err = persist_session_user_messages_if_configured(&request->view,
+                                                      persist_texts,
+                                                      text_count,
+                                                      &persisted);
+    if (err != ESP_OK) {
+        log_session_persist_failure(&request->view,
+                                    "persist_session_user_interrupt",
+                                    err);
+        persisted = false;
+    }
+    ESP_LOGI(TAG,
+             "user_interrupt_triggered request=%" PRIu32 " timing=%s count=%u persisted=%s",
+             request->view.request_id,
+             timing_point ? timing_point : "unknown",
+             (unsigned)text_count,
+             persisted ? "true" : "false");
+
+    if (!*runtime_messages) {
+        *runtime_messages = cJSON_CreateArray();
+        if (!*runtime_messages) {
+            err = ESP_ERR_NO_MEM;
+            goto cleanup;
+        }
+    }
+
+    for (i = 0; i < text_count; i++) {
+        err = append_user_message(*runtime_messages, texts[i]);
+        if (err != ESP_OK) {
+            goto cleanup;
+        }
+    }
+    *out_drained = true;
+    err = ESP_OK;
+
+cleanup:
+    for (i = 0; i < text_count; i++) {
+        free(texts[i]);
+    }
+    return err;
+}
+
 static void claw_core_task(void *arg)
 {
     (void)arg;
@@ -1462,7 +1827,8 @@ static void claw_core_task(void *arg)
         esp_err_t err = ESP_OK;
         char obs_providers_csv[CLAW_CORE_OBS_CSV_MAX] = {0};
         char obs_tool_calls_csv[CLAW_CORE_OBS_CSV_MAX] = {0};
-        bool session_user_flushed = false;
+        bool original_user_persisted = false;
+        bool inject_active_user = true;
 
         if (xQueueReceive(s_core->request_queue, &request, portMAX_DELAY) != pdTRUE) {
             continue;
@@ -1470,7 +1836,17 @@ static void claw_core_task(void *arg)
 
         if (xSemaphoreTake(s_core->inflight_lock, portMAX_DELAY) == pdTRUE) {
             s_core->inflight_request_id = request.view.request_id;
+            if (request.view.session_id && request.view.session_id[0]) {
+                strlcpy(s_core->inflight_session_id,
+                        request.view.session_id,
+                        sizeof(s_core->inflight_session_id));
+            } else {
+                s_core->inflight_session_id[0] = '\0';
+            }
+            s_core->agent_loop_phase = CLAW_CORE_AGENT_LOOP_PHASE_BEFORE_BUILD_ITERATION_CONTEXT;
             s_core->inflight_abort = false;
+            s_core->inflight_abort_reason = CLAW_CORE_CONTROL_ABORT_REASON_NONE;
+            clear_insert_queue_locked();
             xSemaphoreGive(s_core->inflight_lock);
         }
         claw_llm_http_arm_abort(&s_core->inflight_abort);
@@ -1521,6 +1897,18 @@ static void claw_core_task(void *arg)
             }
         }
 
+        {
+            const char *user_texts[1] = {request.view.user_text};
+            esp_err_t persist_err = persist_session_user_messages_if_configured(&request.view,
+                                                                                user_texts,
+                                                                                1,
+                                                                                &original_user_persisted);
+
+            log_session_persist_failure(&request.view,
+                                        "persist_session_user",
+                                        persist_err);
+        }
+
         runtime_messages = cJSON_CreateArray();
         if (!runtime_messages) {
             response.view.error_message = dup_string("Failed to allocate runtime messages");
@@ -1534,6 +1922,10 @@ static void claw_core_task(void *arg)
             response.view.error_message = dup_string(esp_err_to_name(err));
             goto finish_request;
         }
+        if (original_user_persisted &&
+                cached_contexts_have_messages(request_start_contexts, request_start_context_count)) {
+            inject_active_user = false;
+        }
 
         while (true) {
             claw_core_llm_response_free(&llm_response);
@@ -1544,10 +1936,29 @@ static void claw_core_task(void *arg)
             tools_json = NULL;
             messages = NULL;
 
+            claw_core_set_agent_loop_phase(CLAW_CORE_AGENT_LOOP_PHASE_BEFORE_BUILD_ITERATION_CONTEXT);
+            {
+                bool drained = false;
+
+                err = handle_pending_user_interrupts(&request,
+                                                     "before_build_iteration_context",
+                                                     &runtime_messages,
+                                                     &drained);
+                if (err != ESP_OK) {
+                    response.view.error_message = dup_string(esp_err_to_name(err));
+                    goto finish_request;
+                }
+                if (drained) {
+                    continue;
+                }
+            }
+
+            claw_core_set_agent_loop_phase(CLAW_CORE_AGENT_LOOP_PHASE_BUILDING_ITERATION_CONTEXT);
             err = build_iteration_context(&request,
                                           runtime_messages,
                                           request_start_contexts,
                                           request_start_context_count,
+                                          inject_active_user,
                                           &system_prompt,
                                           &messages,
                                           &tools_json,
@@ -1558,16 +1969,52 @@ static void claw_core_task(void *arg)
                 goto finish_request;
             }
 
+            claw_core_set_agent_loop_phase(CLAW_CORE_AGENT_LOOP_PHASE_BEFORE_LLM_HTTP);
+            {
+                bool drained = false;
+
+                err = handle_pending_user_interrupts(&request,
+                                                     "before_llm_http",
+                                                     &runtime_messages,
+                                                     &drained);
+                if (err != ESP_OK) {
+                    response.view.error_message = dup_string(esp_err_to_name(err));
+                    goto finish_request;
+                }
+                if (drained) {
+                    continue;
+                }
+            }
+
+            claw_core_set_agent_loop_phase(CLAW_CORE_AGENT_LOOP_PHASE_IN_LLM_HTTP);
             err = claw_core_llm_chat_messages(system_prompt,
                                               messages,
                                               tools_json,
                                               &llm_response,
                                               &response.view.error_message);
             if (err != ESP_OK) {
+                bool drained = false;
+
+                if (take_user_interrupt_http_abort(request.view.request_id)) {
+                    free(response.view.error_message);
+                    response.view.error_message = NULL;
+                    err = handle_pending_user_interrupts(&request,
+                                                         "in_llm_http_abort",
+                                                         &runtime_messages,
+                                                         &drained);
+                    if (err != ESP_OK) {
+                        response.view.error_message = dup_string(esp_err_to_name(err));
+                        goto finish_request;
+                    }
+                    if (drained) {
+                        continue;
+                    }
+                }
                 goto finish_request;
             }
 
             if (llm_response.tool_call_count == 0) {
+                claw_core_set_agent_loop_phase(CLAW_CORE_AGENT_LOOP_PHASE_FINALIZING);
                 publish_stage_note_for_round(&request.view, iteration);
                 claw_core_finish_from_plain_text(request.view.request_id,
                                                  &llm_response,
@@ -1576,6 +2023,24 @@ static void claw_core_task(void *arg)
                 break;
             }
 
+            claw_core_set_agent_loop_phase(CLAW_CORE_AGENT_LOOP_PHASE_AFTER_LLM_BEFORE_TOOL);
+            {
+                bool drained = false;
+
+                err = handle_pending_user_interrupts(&request,
+                                                     "after_llm_before_tool",
+                                                     &runtime_messages,
+                                                     &drained);
+                if (err != ESP_OK) {
+                    response.view.error_message = dup_string(esp_err_to_name(err));
+                    goto finish_request;
+                }
+                if (drained) {
+                    continue;
+                }
+            }
+
+            claw_core_set_agent_loop_phase(CLAW_CORE_AGENT_LOOP_PHASE_RUNNING_TOOL);
             log_tool_call_names(request.view.request_id, &llm_response);
             publish_stage_tool_calls(&request.view, &llm_response, iteration);
             for (size_t tc = 0; tc < llm_response.tool_call_count; tc++) {
@@ -1606,18 +2071,11 @@ static void claw_core_task(void *arg)
             }
 
             if (tool_results_json && tool_results_json[0]) {
-                bool include_user = !session_user_flushed;
                 esp_err_t persist_err = persist_session_tool_round_if_configured(&request.view,
                                                                                  assistant_tool_message_json,
-                                                                                 tool_results_json,
-                                                                                 include_user);
+                                                                                 tool_results_json);
 
-                if (persist_err == ESP_OK) {
-                    if (include_user && s_core->persist_session &&
-                            request.view.session_id && request.view.session_id[0]) {
-                        session_user_flushed = true;
-                    }
-                } else {
+                if (persist_err != ESP_OK) {
                     ESP_LOGW(TAG,
                              "persist_session_tool_round failed for request=%" PRIu32
                              " iteration=%" PRIu32 ": %s",
@@ -1644,8 +2102,7 @@ static void claw_core_task(void *arg)
             response.view.status = CLAW_CORE_RESPONSE_STATUS_OK;
             persist_err = persist_session_final_if_configured(&request.view,
                                                               llm_response.raw_message_json,
-                                                              response.view.text,
-                                                              session_user_flushed);
+                                                              response.view.text);
             log_session_persist_failure(&request.view,
                                         "persist_session_final",
                                         persist_err);
@@ -1667,11 +2124,17 @@ static void claw_core_task(void *arg)
         }
 
 finish_request:
+        claw_core_set_agent_loop_phase(CLAW_CORE_AGENT_LOOP_PHASE_FINALIZING);
         claw_llm_http_disarm_abort();
         if (xSemaphoreTake(s_core->inflight_lock, portMAX_DELAY) == pdTRUE) {
-            bool was_cancelled = s_core->inflight_abort;
+            bool was_cancelled = s_core->inflight_abort &&
+                                 s_core->inflight_abort_reason == CLAW_CORE_CONTROL_ABORT_REASON_CANCEL;
             s_core->inflight_request_id = 0;
+            s_core->inflight_session_id[0] = '\0';
+            s_core->agent_loop_phase = CLAW_CORE_AGENT_LOOP_PHASE_IDLE;
             s_core->inflight_abort = false;
+            s_core->inflight_abort_reason = CLAW_CORE_CONTROL_ABORT_REASON_NONE;
+            clear_insert_queue_locked();
             xSemaphoreGive(s_core->inflight_lock);
             if (was_cancelled && err != ESP_OK && response.view.error_message) {
                 /* Replace the generic transport error with a clearer one. */
@@ -1697,8 +2160,7 @@ finish_request:
                 } else {
                     persist_err = persist_session_final_if_configured(&request.view,
                                                                       NULL,
-                                                                      failure_trace,
-                                                                      session_user_flushed);
+                                                                      failure_trace);
                     log_session_persist_failure(&request.view,
                                                 "persist_session_failure_note",
                                                 persist_err);
@@ -1933,6 +2395,7 @@ esp_err_t claw_core_cancel_request(uint32_t request_id)
     if (s_core->inflight_request_id != 0 &&
             (request_id == 0 || s_core->inflight_request_id == request_id)) {
         s_core->inflight_abort = true;
+        s_core->inflight_abort_reason = CLAW_CORE_CONTROL_ABORT_REASON_CANCEL;
         armed = true;
         ESP_LOGI(TAG, "Cancel armed for in-flight request=%" PRIu32,
                  s_core->inflight_request_id);
@@ -1941,48 +2404,45 @@ esp_err_t claw_core_cancel_request(uint32_t request_id)
     return armed ? ESP_OK : ESP_ERR_NOT_FOUND;
 }
 
+claw_core_agent_loop_phase_t claw_core_get_agent_loop_phase(void)
+{
+    claw_core_agent_loop_phase_t phase = CLAW_CORE_AGENT_LOOP_PHASE_IDLE;
+
+    if (!s_core || !s_core->initialized || !s_core->inflight_lock) {
+        return phase;
+    }
+    if (xSemaphoreTake(s_core->inflight_lock, pdMS_TO_TICKS(200)) != pdTRUE) {
+        return phase;
+    }
+    phase = s_core->agent_loop_phase;
+    xSemaphoreGive(s_core->inflight_lock);
+    return phase;
+}
+
 esp_err_t claw_core_submit(const claw_core_request_t *request, uint32_t timeout_ms)
 {
     claw_core_request_item_t item = {0};
     TickType_t ticks;
+    esp_err_t err;
 
     if (!s_core || !s_core->started || !request || !request->user_text || request->user_text[0] == '\0') {
         return (s_core && s_core->started) ? ESP_ERR_INVALID_ARG : ESP_ERR_INVALID_STATE;
     }
 
-    item.view.request_id = request->request_id;
-    item.view.flags = request->flags;
-    item.owned_session_id = dup_string(request->session_id);
-    item.owned_user_text = dup_string(request->user_text);
-    item.owned_source_channel = dup_string(request->source_channel);
-    item.owned_source_chat_id = dup_string(request->source_chat_id);
-    item.owned_source_sender_id = dup_string(request->source_sender_id);
-    item.owned_source_message_id = dup_string(request->source_message_id);
-    item.owned_source_cap = dup_string(request->source_cap);
-    item.owned_target_channel = dup_string(request->target_channel);
-    item.owned_target_chat_id = dup_string(request->target_chat_id);
+    err = clone_request_item(request, &item);
+    if (err != ESP_OK) {
+        return err;
+    }
 
-    item.view.session_id = item.owned_session_id;
-    item.view.user_text = item.owned_user_text;
-    item.view.source_channel = item.owned_source_channel;
-    item.view.source_chat_id = item.owned_source_chat_id;
-    item.view.source_sender_id = item.owned_source_sender_id;
-    item.view.source_message_id = item.owned_source_message_id;
-    item.view.source_cap = item.owned_source_cap;
-    item.view.target_channel = item.owned_target_channel;
-    item.view.target_chat_id = item.owned_target_chat_id;
-
-    if ((request->session_id && !item.owned_session_id) ||
-            (request->source_channel && !item.owned_source_channel) ||
-            (request->source_chat_id && !item.owned_source_chat_id) ||
-            (request->source_sender_id && !item.owned_source_sender_id) ||
-            (request->source_message_id && !item.owned_source_message_id) ||
-            (request->source_cap && !item.owned_source_cap) ||
-            (request->target_channel && !item.owned_target_channel) ||
-            (request->target_chat_id && !item.owned_target_chat_id) ||
-            !item.owned_user_text) {
-        free_request_item(&item);
-        return ESP_ERR_NO_MEM;
+    if (request->flags & CLAW_CORE_REQUEST_FLAG_USER_INTERRUPT) {
+        err = try_queue_insert_request(&item);
+        if (err == ESP_OK) {
+            return ESP_OK;
+        }
+        if (err == ESP_ERR_NO_MEM || err == ESP_ERR_TIMEOUT) {
+            free_request_item(&item);
+            return err;
+        }
     }
 
     ticks = (timeout_ms == UINT32_MAX) ? portMAX_DELAY : pdMS_TO_TICKS(timeout_ms);

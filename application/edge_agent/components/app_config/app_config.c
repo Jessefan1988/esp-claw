@@ -47,6 +47,7 @@ typedef struct {
 #define APP_DEFAULT_LLM_IMAGE_REMOTE_URL_ONLY "false"
 #define APP_DEFAULT_QQ_APP_ID                ""
 #define APP_DEFAULT_QQ_APP_SECRET            ""
+#define APP_DEFAULT_QQ_MSG_TYPE              "0"
 #define APP_DEFAULT_FEISHU_APP_ID            ""
 #define APP_DEFAULT_FEISHU_APP_SECRET        ""
 #define APP_DEFAULT_TG_BOT_TOKEN             ""
@@ -81,6 +82,7 @@ static const app_config_field_t s_fields[] = {
     APP_CONFIG_FIELD(llm_image_remote_url_only, "llm_img_url_o", APP_DEFAULT_LLM_IMAGE_REMOTE_URL_ONLY),
     APP_CONFIG_FIELD(qq_app_id, "qq_app_id", APP_DEFAULT_QQ_APP_ID),
     APP_CONFIG_FIELD(qq_app_secret, "qq_app_secret", APP_DEFAULT_QQ_APP_SECRET),
+    APP_CONFIG_FIELD(qq_msg_type, "qq_msg_type", APP_DEFAULT_QQ_MSG_TYPE),
     APP_CONFIG_FIELD(feishu_app_id, "feishu_app_id", APP_DEFAULT_FEISHU_APP_ID),
     APP_CONFIG_FIELD(feishu_app_secret, "feishu_secret", APP_DEFAULT_FEISHU_APP_SECRET),
     APP_CONFIG_FIELD(tg_bot_token, "tg_bot_token", APP_DEFAULT_TG_BOT_TOKEN),
@@ -554,6 +556,7 @@ void app_config_to_claw(const app_config_t *config, app_claw_config_t *out)
             sizeof(out->llm_image_remote_url_only));
     strlcpy(out->qq_app_id, config->qq_app_id, sizeof(out->qq_app_id));
     strlcpy(out->qq_app_secret, config->qq_app_secret, sizeof(out->qq_app_secret));
+    strlcpy(out->qq_msg_type, config->qq_msg_type, sizeof(out->qq_msg_type));
     strlcpy(out->feishu_app_id, config->feishu_app_id, sizeof(out->feishu_app_id));
     strlcpy(out->feishu_app_secret, config->feishu_app_secret, sizeof(out->feishu_app_secret));
     strlcpy(out->tg_bot_token, config->tg_bot_token, sizeof(out->tg_bot_token));

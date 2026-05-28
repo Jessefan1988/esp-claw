@@ -20,6 +20,8 @@ import { Aside, CardGrid, LinkCard } from '@astrojs/starlight/components';
 | `adc` | `lua_driver_adc` | ADC 采样 |
 | `gpio` | `lua_driver_gpio` | GPIO 读写、方向配置 |
 | `i2c` | `lua_driver_i2c` | I2C 总线扫描与设备读写 |
+| `ssd1306` | `lua_driver_i2c` | 纯 Lua SSD1306 I2C OLED 驱动 |
+| `lib_si12t_touch` | `lua_driver_i2c` | 纯 Lua Si12T I2C 电容触摸驱动 |
 | `mcpwm` | `lua_driver_mcpwm` | 通用 PWM 输出（频率/占空比控制） |
 | `touch` | `lua_driver_touch` | 电容触摸按键数据读取 |
 | `uart` | `lua_driver_uart` | UART 串口收发（polling 读写） |
@@ -46,7 +48,6 @@ import { Aside, CardGrid, LinkCard } from '@astrojs/starlight/components';
 | `lcd_touch` | `lua_module_lcd_touch` | 触摸屏坐标读取 |
 | `led_strip` | `lua_module_led_strip` | WS2812 等可寻址 LED 灯带控制 |
 | `magnetometer` | `lua_module_magnetometer` | 磁力计/指南针数据读取 |
-| `ssd1306` | `lua_module_ssd1306` | 纯 Lua SSD1306 I2C OLED 驱动 |
 | `storage` | `lua_module_storage` | 文件系统操作 |
 | `system` | `lua_module_system` | 时间、运行时长、IP、内存、堆、任务栈与 Wi-Fi 状态查询 |
 | `arg_schema` | `lua_module_system` | 纯 Lua 参数归一化辅助库 |

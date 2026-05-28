@@ -21,7 +21,6 @@ build_doc:
   artifacts:
     when: always
     paths:
-      - docs/public/**/*
       - docs/dist/**/*
       - docs/src/flash-tool/firmware.json
     expire_in: 1 week

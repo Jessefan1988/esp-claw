@@ -31,8 +31,8 @@ export const Switch: Component<SwitchProps> = (props) => {
       >
         <span
           class={[
-            'absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all',
-            props.checked ? 'left-[1.125rem]' : 'left-0.5',
+            'absolute left-px top-1/2 h-4 w-4 -translate-y-1/2 rounded-full bg-white shadow transition-transform',
+            props.checked ? 'translate-x-4' : 'translate-x-0',
           ].join(' ')}
         />
         <input
@@ -45,11 +45,17 @@ export const Switch: Component<SwitchProps> = (props) => {
       </span>
       <span class="flex flex-col">
         {props.label && (
-          <span class={[props.labelClass ?? 'text-[var(--color-text-primary)]', 'text-[0.82rem]'].join(' ')}>
+          <span
+            class={[props.labelClass ?? 'text-[var(--color-text-primary)]', 'text-[0.82rem]'].join(
+              ' ',
+            )}
+          >
             {props.label}
           </span>
         )}
-        {props.hint && <span class="text-[0.7rem] text-[var(--color-text-muted)]">{props.hint}</span>}
+        {props.hint && (
+          <span class="text-[0.7rem] text-[var(--color-text-muted)]">{props.hint}</span>
+        )}
       </span>
     </label>
   );
