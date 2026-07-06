@@ -6,7 +6,7 @@ repository.
 
 Third-party dependencies are fetched into the CMake build directory:
 
-- LVGL `v9.3.0`
+- LVGL `v9.5.0`
 - Lua `5.4.8`
 
 ## Build

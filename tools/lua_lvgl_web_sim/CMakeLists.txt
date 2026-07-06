@@ -12,7 +12,7 @@ set(LV_CONF_INCLUDE_SIMPLE ON CACHE BOOL "Use simple lv_conf include" FORCE)
 FetchContent_Declare(
     lvgl
     GIT_REPOSITORY https://github.com/lvgl/lvgl.git
-    GIT_TAG c29651105d7c150789b9c53de7dab8bff67daee4
+    GIT_TAG v9.5.0
 )
 FetchContent_MakeAvailable(lvgl)
 

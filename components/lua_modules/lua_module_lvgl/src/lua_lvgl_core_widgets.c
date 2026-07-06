@@ -366,7 +366,7 @@ int lua_lvgl_create_widget(lua_State *L, lua_lvgl_obj_type_t type)
             }
             if (lua_lvgl_has_field(L, 2, "selected")) {
                 int selected = lua_lvgl_get_opt_int_field(L, 2, "selected", 1);
-                lv_dropdown_set_selected(obj, selected > 0 ? (uint16_t)(selected - 1) : 0, LV_ANIM_OFF);
+                lv_dropdown_set_selected(obj, selected > 0 ? (uint32_t)(selected - 1) : 0);
             }
             if (lua_lvgl_has_field(L, 2, "dir")) {
                 if (lua_lvgl_parse_dir(lua_lvgl_get_opt_string_field(L, 2, "dir"), &dir) != ESP_OK) {

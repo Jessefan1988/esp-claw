@@ -1,6 +1,6 @@
 /**
  * @file lv_conf.h
- * Configuration file for v9.3.0-dev
+ * Configuration file for v9.5.0
  */
 
 /*
@@ -594,8 +594,6 @@
 /* Demonstrate special features */
 #define LV_FONT_MONTSERRAT_28_COMPRESSED    1
 #define LV_FONT_DEJAVU_16_PERSIAN_HEBREW    1
-#define LV_FONT_SIMSUN_14_CJK               1  /**< 1000 most common CJK radicals */
-#define LV_FONT_SIMSUN_16_CJK               1  /**< 1000 most common CJK radicals */
 #define LV_FONT_SOURCE_HAN_SANS_SC_14_CJK   1
 #define LV_FONT_SOURCE_HAN_SANS_SC_16_CJK   1
 
